@@ -1,0 +1,4 @@
+tensorflow
+pandas==2.2.2
+SQLAlchemy
+scikit-learn

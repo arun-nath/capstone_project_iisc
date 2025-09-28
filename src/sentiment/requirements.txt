@@ -1,0 +1,7 @@
+transformers==4.44.0
+torch==2.4.1
+spacy
+feedparser==6.0.10
+pandas==2.2.2
+SQLAlchemy
+psycopg2-binary
