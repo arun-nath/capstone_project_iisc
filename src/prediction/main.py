@@ -1,21 +1,34 @@
+from sqlalchemy import create_engine,text
+import psycopg2
+import tensorflow as tf
 from tensorflow import keras
 import pandas as pd
 import numpy as np
-
-from sqlalchemy import create_engine, text
 from sklearn.preprocessing import RobustScaler, LabelEncoder
+import pytz
 
-import os
+import joblib
 
-"""
-To DO
+import math
+import socket
+import os 
 
-Retun the model for all 50 stocks
-Save scaler and encoders
-Save the data to table
-"""
+from datetime import datetime
 
+import logging
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
+logging.basicConfig(level=logging.INFO)
+logging.getLogger("sqlalchemy.engine").setLevel(logging.INFO)
+
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress TensorFlow warnings
+
+# Configure TensorFlow to use CPU
+tf.config.set_visible_devices([], 'GPU')
+
+print("-------------------------------------")
 
 def calculate_features(df):
     """
@@ -152,41 +165,120 @@ def create_sequences(data, time_steps=30):
         X_seq.append(data[i-time_steps:i])
     return np.array(X_seq)
 
-def get_data(datetime, symbol):
-    db_user = os.environ.get("DB_USERNAME")
+def fetch_data(datetime, symbol):
+    conn = psycopg2.connect(
+        dbname="capstone_project",
+        user="postgres",
+        password=os.environ.get("DB_PASSWORD")
+        host="database-1.cs9ycq6ishdm.us-east-1.rds.amazonaws.com",
+        port="5432"
+    )
+    logger.info("Connected")
+    query = f"select * from stocks where timestamp<'{datetime}' and symbol='{symbol}' order by timestamp desc limit 120;"
+    df = pd.read_sql(query, conn, parse_dates=['timestamp'])
+    df = df.iloc[::-1].reset_index(drop=True)
+    conn.close()
+    logger.info("Closed")
+    return df
+
+def get_st_data(datetime, symbol):
+    print("entered")
+    # return None
+    db_user = 'postgres'
     db_password = os.environ.get("DB_PASSWORD")
     db_host = 'database-1.cs9ycq6ishdm.us-east-1.rds.amazonaws.com'
     db_port = '5432'
     db_name = 'capstone_project'
 
-    # 3. Create a SQLAlchemy engine
-    # The 'postgresql+psycopg2://' dialect specifies the use of psycopg2
+    # # 3. Create a SQLAlchemy engine
+    # # The 'postgresql+psycopg2://' dialect specifies the use of psycopg2
     engine = create_engine(f'postgresql+psycopg2://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}')
-    with engine.connect() as conn:
-        query = f"select * from stocks where timestamp<'{datetime}' and symbol='{symbol}' order by timestamp desc limit 120"
-        df = pd.read_sql_query(text(query), conn,  parse_dates=['timestamp'])
-        df = df.iloc[::-1].reset_index(drop=True)
-    return df
+    print("engine creted")
+    try:
+        with engine.connect() as conn:
+            print("connected")
+    #     query = f"select * from stocks where timestamp<'{datetime}' and symbol='{symbol}' order by timestamp desc limit 120"
+    #     df = pd.read_sql_query(text(query), conn,  parse_dates=['timestamp'])
+    #     df = df.iloc[::-1].reset_index(drop=True)
+    except Exception as e:
+        logger.error(e)
+    return None
 
-if __name__ == "__main__":
-    model = keras.models.load_model("lstm_1hr_prediction_2_atr_multiplier_all_stocks.keras")
-    datetime = '2025-08-08 15:00:00'
-    SYMBOL_LIST =  [
-    "RELIANCE", "TCS", "HDFCBANK", "INFY", "HINDUNILVR", "HDFCBANK", "ICICIBANK", 
-    "KOTAKBANK", "BHARTIARTL", "ITC", "SBIN", "BAJFINANCE", "ASIANPAINT", 
-    "DMART", "MARUTI", "AXISBANK", "SUNPHARMA", "TITAN", "ULTRACEMCO", 
-    "TATAMOTORS", "NESTLEIND", "BAJAJFINSV", "JSWSTEEL", "POWERGRID", 
-    "TATASTEEL", "ADANIPORTS", "HCLTECH", "WIPRO", "DRREDDY", "CIPLA", 
-    "HDFCLIFE", "ONGC", "NTPC", "TECHM", "INDUSINDBK", "COALINDIA", 
-    "GRASIM", "TATACONSUM", "SBILIFE", "BRITANNIA", "HEROMOTOCO", "EICHERMOT", 
-    "DIVISLAB", "BAJAJ-AUTO", "SHREECEM", "UPL", "APOLLOHOSP", "HINDALCO", 
-    "VEDL", "BPCL"
-    ]
+logger.info("Load ML Model Started")
+
+def main():
+    print("Load ML Model Started")
+    model = keras.models.load_model("lstm_1hr_prediction_2_atr_multiplier.keras", compile=False)
+    # model.save("lstm_model_tf", save_format="tf")
+    # print("-------------------------------------")
+    logger.info("Load ML Model Completed")
+    ist = pytz.timezone("Asia/Kolkata")
+
+    datetime_now = datetime.now(ist).strftime('%Y-%m-%d %H:%M:%S')
+    print(datetime_now)
+    # # datetime = '2025-08-08 15:00:00'
+    atr_multiplier = 1
+    # SYMBOL_LIST = ['ADANIENT']
+    SYMBOL_LIST =  ['ADANIENT','ADANIPORTS',
+    'APOLLOHOSP',
+    'ASIANPAINT',
+    'AXISBANK',
+    'BAJAJ-AUTO',
+    'BAJAJFINSV',
+    'BAJFINANCE',
+    'BEL',
+    'BHARTIARTL',
+    'CIPLA',
+    'COALINDIA',
+    'DRREDDY',
+    'EICHERMOT',
+    'ETERNAL',
+    'GRASIM',
+    'HCLTECH',
+    'HDFCBANK',
+    'HDFCLIFE',
+    'HEROMOTOCO',
+    'HINDALCO',
+    'HINDUNILVR',
+    'ICICIBANK',
+    'INDUSINDBK',
+    'INFY',
+    'ITC',
+    'JIOFIN',
+    'JSWSTEEL',
+    'KOTAKBANK',
+    'LT',
+    'M&M',
+    'MARUTI',
+    'NESTLEIND',
+    'NTPC',
+    'ONGC',
+    'POWERGRID',
+    'RELIANCE',
+    'SBILIFE',
+    'SHRIRAMFIN',
+    'SUNPHARMA',
+    'TCS',
+    'TATACONSUM',
+    'TATAMOTORS',
+    'TATASTEEL',
+    'TECHM',
+    'TITAN',
+    'TRENT',
+    'ULTRACEMCO',
+    'WIPRO']
     
     final_prediction = []
+    scaler = joblib.load('scaler.joblib')
     for symbol in SYMBOL_LIST:
+        print(symbol)
         symbol_pred = {}
-        df = get_data(datetime, symbol)
+        try:
+            print("Started")
+            df = fetch_data(datetime_now, symbol)
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            import sys; sys.exit(1)
         df.index = df['timestamp']
         categorical_cols = ['symbol']
         feature_columns = [
@@ -198,27 +290,55 @@ if __name__ == "__main__":
             'vwap_ratio', 'returns_5', 'log_returns', 'hl_range_pct',
             'upper_shadow', 'lower_shadow','macd','macd_signal','macd_hist','roc_5','roc_10','roc_20'
         ] + categorical_cols
-        df_features = calculate_features(df)
-        df_features = df_features[feature_columns]
+        df_all_features = calculate_features(df)
+        df_features = df_all_features[feature_columns]
         num_cols = [c for c in feature_columns if c not in categorical_cols]
-        scaler = RobustScaler()
+        # scaler = RobustScaler()
         df_features[num_cols] = scaler.fit_transform(df_features[num_cols])  ##
         for col in categorical_cols:
             le = LabelEncoder()
             df_features[col] = le.fit_transform(df_features[col].astype(str))   
         df_seq = create_sequences(df_features)
         y_test_pred_proba_lstm = model.predict(df_seq).flatten()
-        symbol_pred['timestamp'] = datetime
+        symbol_pred['timestamp'] = datetime_now
         symbol_pred['symbol'] = symbol
         symbol_pred['buy_pred'] = round(y_test_pred_proba_lstm[-1],2)
         symbol_pred['sell_pred'] = round((1-y_test_pred_proba_lstm[-1]), 2)
+        if symbol_pred['buy_pred'] > 0.6:
+            symbol_pred['action'] = 'BUY'
+        elif symbol_pred['sell_pred'] > 0.6:
+            symbol_pred['action'] = 'SELL'
+        else:
+            symbol_pred['action'] = 'NO TRADE'
+
+        target = df_all_features.iloc[-1]['atr'] * atr_multiplier
+        current_price = df_all_features.iloc[-1]['close']
+        symbol_pred['price'] = math.floor(current_price)
+        symbol_pred['target_price'] = ''
+        symbol_pred['stop_loss'] = ''
+        if symbol_pred['action'] == 'BUY':
+            symbol_pred['target_price'] = math.floor(current_price+ current_price* (target/100))
+            symbol_pred['stop_loss'] = math.floor(current_price - current_price* ((target* 0.5)/100))
         # symbol_pred[symbol] = (round(y_test_pred_proba_lstm[-1],2),round((1-y_test_pred_proba_lstm[-1]), 2))
+        elif symbol_pred['action'] == 'SELL':
+            symbol_pred['target_price'] = math.floor(current_price- current_price* (target/100))
+            symbol_pred['stop_loss'] = math.floor(current_price + current_price* ((target* 0.5)/100))
         final_prediction.append(symbol_pred)
     print(final_prediction)
     df_result = pd.DataFrame(final_prediction)
     print(df_result)
 
-    
+    db_user = 'postgres'
+    db_password = os.environ.get("DB_PASSWORD")
+    db_host = 'database-1.cs9ycq6ishdm.us-east-1.rds.amazonaws.com'
+    db_port = '5432'
+    db_name = 'capstone_project'
 
+    engine = create_engine(f'postgresql+psycopg2://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}')
+    table_name = 'buy_sell_predictions'
+    df_result.to_sql(table_name, engine, if_exists='append', index=False)
+
+if __name__ == "__main__":
+    main()
 
 

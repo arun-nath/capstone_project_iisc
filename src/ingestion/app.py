@@ -1,9 +1,13 @@
-import yfinance as yf
+
 import pandas as pd
 import json
 from datetime import datetime, timedelta
+from datetime import datetime, time as dt_time
 import time
 from sqlalchemy import create_engine
+import yfinance as yf
+import pytz
+
 import os
 
 NIFTY_50_SYMBOLS = [
@@ -18,12 +22,52 @@ NIFTY_50_SYMBOLS = [
     "VEDL", "BPCL"
 ]
 
+holiday_list = [
+'2025-01-26',
+'2025-02-26',
+'2025-03-14',
+'2025-03-31',
+'2025-04-06',
+'2025-04-10',
+'2025-04-14',
+'2025-04-18',
+'2025-05-01',
+'2025-06-07',
+'2025-07-06',
+'2025-08-15',
+'2025-08-27',
+'2025-10-02',
+'2025-10-21',
+'2025-10-22',
+'2025-11-05',
+'2025-12-25',
+]
+
+market_start_time = "9:15"
+market_end_time = "3:30"
+
+def is_market_time():
+    # Convert current time to IST
+    ist = pytz.timezone("Asia/Kolkata")
+    now_ist = datetime.now(ist).time()
+    now_date = datetime.now(ist).date().strftime('%Y-%m-%d')
+
+    # Define NSE market hours
+    market_open = dt_time(9, 15)
+    market_close = dt_time(15, 30)
+
+    return market_open <= now_ist <= market_close and now_date not in holiday_list
+
 def fetch_nifty50_data():
     """
     Fetch 5-minute OHLCV data for all Nifty 50 stocks
     """
     all_data = []
     failed_symbols = []
+
+    if not is_market_time():
+        print("Outside market hours")
+        return None
     
     for i, symbol in enumerate(NIFTY_50_SYMBOLS):
         try:
@@ -66,15 +110,17 @@ def fetch_nifty50_data():
     
     return pd.DataFrame(all_data)
 
-if __name__ == "__main__":
+# if __name__ == "__main__":
+def lambda_handler(event, context):
     df = fetch_nifty50_data()
-    db_user = os.environ.get("DB_USERNAME")
-    db_password = os.environ.get("DB_PASSWORD")
-    db_host = 'database-1.cs9ycq6ishdm.us-east-1.rds.amazonaws.com'
-    db_port = '5432'
-    db_name = 'capstone_project'
-    print(df)
+    if df is not None:
+        db_user = 'postgres'
+        db_password = os.environ.get("DB_PASSWORD")
+        db_host = 'database-1.cs9ycq6ishdm.us-east-1.rds.amazonaws.com'
+        db_port = '5432'
+        db_name = 'capstone_project'
+        print(df)
 
-    engine = create_engine(f'postgresql+psycopg2://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}')
-    table_name = 'stocks'
-    df.to_sql(table_name, engine, if_exists='append', index=False)
+        engine = create_engine(f'postgresql+psycopg2://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}')
+        table_name = 'stocks'
+        df.to_sql(table_name, engine, if_exists='append', index=False)

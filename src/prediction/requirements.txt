@@ -1,4 +1,6 @@
-tensorflow
-pandas==2.2.2
 SQLAlchemy
+psycopg2-binary
+pandas
+joblib
 scikit-learn
+tensorflow
